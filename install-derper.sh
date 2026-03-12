@@ -80,7 +80,7 @@ usage() {
   --region-name <name>    derpMap RegionName（默认 Myself Derper）
   --node-name <name>      derpMap 节点名（默认 901a）
   --skip-go-install       跳过 Go 安装/更新
-  --os <name>             指定系统类型：ubuntu|rhel|openwrt|alpine|macos|other
+  --os <name>             指定系统类型：ubuntu|rhel|openwrt|alpine|other
   -h, --help              显示帮助
 
 示例：
@@ -145,8 +145,7 @@ normalize_target_os() {
     rhel|centos|rocky|alma) echo "rhel" ;;
     openwrt|istoreos) echo "openwrt" ;;
     alpine) echo "alpine" ;;
-    macos|darwin) echo "macos" ;;
-    other|linux) echo "other" ;;
+    darwin|macos|other|linux) echo "other" ;;
     *) return 1 ;;
   esac
 }
@@ -155,7 +154,7 @@ detect_target_os_auto() {
   local uname_s
   uname_s="$(uname -s 2>/dev/null || true)"
   if [[ "$uname_s" == "Darwin" ]]; then
-    echo "macos"
+    echo "other"
     return 0
   fi
   if [[ -f /etc/openwrt_release ]] || [[ -d /etc/config ]]; then
@@ -262,11 +261,6 @@ install_deps() {
       need_cmd apk
       log "使用 apk 安装依赖"
       apk add --no-cache wget git openssl curl ca-certificates tar gzip bash
-      ;;
-    macos)
-      need_cmd brew
-      log "使用 brew 安装依赖"
-      brew install curl wget git openssl go || true
       ;;
     other)
       warn "other 模式：跳过自动安装依赖，请确保 curl/wget openssl tar gzip 可用"
