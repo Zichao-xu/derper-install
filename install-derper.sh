@@ -27,7 +27,7 @@ warn() { echo -e "[!] $*"; }
 err() { echo -e "[x] $*" >&2; }
 
 need_cmd() {
-  command -v "$1" >/dev/null 2>&1 || { err "Missing command: $1"; exit 1; }
+  command -v "$1" >/dev/null 2>&1 || { err "缺少命令：$1"; exit 1; }
 }
 
 need_one_cmd() {
@@ -38,7 +38,7 @@ need_one_cmd() {
       break
     fi
   done
-  [[ "$ok" == "true" ]] || { err "Missing command (one of): $*"; exit 1; }
+  [[ "$ok" == "true" ]] || { err "缺少命令（以下其一）：$*"; exit 1; }
 }
 
 download_text() {
@@ -200,7 +200,7 @@ while [[ $# -gt 0 ]]; do
       [[ -n "$TARGET_OS" ]] || { err "无效 --os 参数: ${2:-}"; exit 1; }
       shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *) err "Unknown argument: $1"; usage; exit 1 ;;
+    *) err "未知参数：$1"; usage; exit 1 ;;
   esac
 done
 
@@ -208,7 +208,7 @@ choose_target_os
 log "系统选择：${TARGET_OS}"
 
 if [[ $EUID -ne 0 ]]; then
-  err "Please run as root (or use sudo)."
+  err "请使用 root 运行（或通过 sudo）。"
   exit 1
 fi
 
@@ -217,15 +217,15 @@ if [[ -n "$SERVER_IP" ]]; then
     err "--server-ip is not a valid IPv4: $SERVER_IP"
     exit 1
   fi
-  log "Using user-provided public IPv4: $SERVER_IP"
+  log "使用用户指定的公网 IPv4：$SERVER_IP"
 else
-  log "Detecting server public IPv4 automatically"
+  log "自动探测服务器公网 IPv4"
   SERVER_IP="$(detect_public_ip || true)"
   if [[ -z "$SERVER_IP" ]]; then
-    err "Failed to auto-detect public IPv4. You can pass --server-ip manually."
+    err "自动探测公网 IPv4 失败，可通过 --server-ip 手动指定。"
     exit 1
   fi
-  log "Detected public IPv4: $SERVER_IP"
+  log "已探测到公网 IPv4：$SERVER_IP"
 fi
 
 need_one_cmd curl wget
@@ -285,7 +285,7 @@ map_go_arch() {
 
 setup_service() {
   if command -v systemctl >/dev/null 2>&1; then
-    log "Writing systemd service"
+    log "写入 systemd 服务"
     cat > "$SERVICE_PATH" <<EOF
 [Unit]
 Description=TS Derper
@@ -308,9 +308,9 @@ EOF
     systemctl restart derp
 
     if systemctl is-active --quiet derp; then
-      log "derp service is running (systemd)"
+      log "derp 服务运行中（systemd）"
     else
-      err "derp service failed to start. Check: journalctl -u derp -e"
+      err "derp 服务启动失败，请检查：journalctl -u derp -e"
       exit 1
     fi
     return 0
@@ -335,8 +335,9 @@ EOF
     sed -i "s#-hostname derp.myself.com -a :33445 -http-port 33446#-hostname ${DOMAIN} -a :${DERP_PORT} -http-port ${HTTP_PORT}#" /etc/init.d/derp
     chmod +x /etc/init.d/derp
     /etc/init.d/derp enable || true
-    /etc/init.d/derp restart || /etc/init.d/derp start
-    log "derp service started via /etc/init.d/derp"
+    /etc/init.d/derp stop >/dev/null 2>&1 || true
+    /etc/init.d/derp start
+    log "已通过 /etc/init.d/derp 启动 derp 服务"
     return 0
   fi
 
@@ -344,7 +345,7 @@ EOF
   nohup "$BIN_PATH" -hostname "$DOMAIN" -a ":$DERP_PORT" -http-port "$HTTP_PORT" -certmode manual -certdir "$DERP_DIR" >/var/log/derper.log 2>&1 &
   sleep 1
   pgrep -f "$BIN_PATH" >/dev/null 2>&1 || { err "derper 启动失败"; exit 1; }
-  log "derp process started (nohup mode)"
+  log "已以 nohup 模式启动 derp 进程"
 }
 
 install_deps
@@ -391,17 +392,17 @@ fi
 export PATH="/usr/local/go/bin:${PATH}"
 need_cmd go
 
-log "Configuring Go env"
+log "配置 Go 环境"
 go env -w GO111MODULE=on
 # 国内网络优先 goproxy.cn，并保留 direct 回退
 GO_PROXY_DEFAULT="https://goproxy.cn,https://proxy.golang.org,direct"
 go env -w GOPROXY="$GO_PROXY_DEFAULT"
 
-log "Installing derper binary"
+log "安装 derper 二进制"
 go install tailscale.com/cmd/derper@main
 
 DERPER_SRC_BIN="$(go env GOPATH)/bin/derper"
-[[ -x "$DERPER_SRC_BIN" ]] || { err "derper binary not found after go install"; exit 1; }
+[[ -x "$DERPER_SRC_BIN" ]] || { err "go install 后未找到 derper 二进制"; exit 1; }
 
 mkdir -p "$DERP_DIR"
 if command -v install >/dev/null 2>&1; then
@@ -414,7 +415,7 @@ fi
 CRT_PATH="${DERP_DIR}/${DOMAIN}.crt"
 KEY_PATH="${DERP_DIR}/${DOMAIN}.key"
 
-log "Generating self-signed cert for ${DOMAIN}"
+log "为 ${DOMAIN} 生成自签证书"
 openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
   -keyout "$KEY_PATH" \
   -out "$CRT_PATH" \
