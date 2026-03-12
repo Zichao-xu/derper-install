@@ -151,30 +151,38 @@ normalize_target_os() {
   esac
 }
 
+detect_target_os_auto() {
+  local uname_s
+  uname_s="$(uname -s 2>/dev/null || true)"
+  if [[ "$uname_s" == "Darwin" ]]; then
+    echo "macos"
+    return 0
+  fi
+  if [[ -f /etc/openwrt_release ]] || [[ -d /etc/config ]]; then
+    echo "openwrt"
+    return 0
+  fi
+  if [[ -f /etc/alpine-release ]]; then
+    echo "alpine"
+    return 0
+  fi
+  if [[ -f /etc/os-release ]]; then
+    if grep -Eqi 'ubuntu|debian' /etc/os-release; then
+      echo "ubuntu"; return 0
+    elif grep -Eqi 'centos|rhel|rocky|almalinux|fedora' /etc/os-release; then
+      echo "rhel"; return 0
+    fi
+  fi
+  echo "other"
+}
+
 choose_target_os() {
   if [[ -n "$TARGET_OS" ]]; then
     return 0
   fi
 
-  echo "请选择你的系统类型："
-  echo "  1) Ubuntu / Debian"
-  echo "  2) CentOS / Rocky / Alma"
-  echo "  3) OpenWrt / iStoreOS"
-  echo "  4) Alpine"
-  echo "  5) macOS"
-  echo "  6) 其他 Linux"
-  printf "输入序号 [1-6]: "
-  read -r choice
-
-  case "$choice" in
-    1) TARGET_OS="ubuntu" ;;
-    2) TARGET_OS="rhel" ;;
-    3) TARGET_OS="openwrt" ;;
-    4) TARGET_OS="alpine" ;;
-    5) TARGET_OS="macos" ;;
-    6) TARGET_OS="other" ;;
-    *) err "无效选项：$choice"; exit 1 ;;
-  esac
+  TARGET_OS="$(detect_target_os_auto)"
+  log "自动识别系统：$TARGET_OS（可用 --os 覆盖）"
 }
 
 while [[ $# -gt 0 ]]; do
