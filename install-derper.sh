@@ -119,24 +119,51 @@ else
   log "Detected public IPv4: $SERVER_IP"
 fi
 
-need_cmd apt
 need_cmd systemctl
 need_cmd openssl
 need_cmd curl
 need_cmd git
 
-export DEBIAN_FRONTEND=noninteractive
-log "Updating apt packages"
-apt update -y
-apt install -y wget git openssl curl ca-certificates
+install_deps() {
+  if command -v apt >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    log "检测到 apt，安装依赖中"
+    apt update -y
+    apt install -y wget git openssl curl ca-certificates
+  elif command -v dnf >/dev/null 2>&1; then
+    log "检测到 dnf，安装依赖中"
+    dnf install -y wget git openssl curl ca-certificates tar gzip
+  elif command -v yum >/dev/null 2>&1; then
+    log "检测到 yum，安装依赖中"
+    yum install -y wget git openssl curl ca-certificates tar gzip
+  elif command -v apk >/dev/null 2>&1; then
+    log "检测到 apk，安装依赖中"
+    apk add --no-cache wget git openssl curl ca-certificates tar gzip bash
+  else
+    err "不支持的包管理器（需要 apt/dnf/yum/apk 之一）"
+    exit 1
+  fi
+}
+
+map_go_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) echo "amd64" ;;
+    aarch64|arm64) echo "arm64" ;;
+    armv7l|armv7) echo "armv6l" ;;
+    i386|i686) echo "386" ;;
+    riscv64) echo "riscv64" ;;
+    *) return 1 ;;
+  esac
+}
+
+install_deps
 
 if [[ "$SKIP_GO_INSTALL" != "true" ]]; then
-  ARCH="$(dpkg --print-architecture)"
-  case "$ARCH" in
-    amd64) GO_ARCH="amd64" ;;
-    arm64) GO_ARCH="arm64" ;;
-    *) err "Unsupported architecture: $ARCH"; exit 1 ;;
-  esac
+  GO_ARCH="$(map_go_arch || true)"
+  if [[ -z "$GO_ARCH" ]]; then
+    err "不支持的架构: $(uname -m)"
+    exit 1
+  fi
 
   log "Detecting latest Go version"
   GO_VERSION="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n1)"
