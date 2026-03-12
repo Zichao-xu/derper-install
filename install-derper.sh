@@ -156,7 +156,6 @@ else
   log "Detected public IPv4: $SERVER_IP"
 fi
 
-need_cmd systemctl
 need_cmd openssl
 need_one_cmd curl wget
 
@@ -175,8 +174,12 @@ install_deps() {
   elif command -v apk >/dev/null 2>&1; then
     log "检测到 apk，安装依赖中"
     apk add --no-cache wget git openssl curl ca-certificates tar gzip bash
+  elif command -v opkg >/dev/null 2>&1; then
+    log "检测到 opkg（OpenWrt），安装依赖中"
+    opkg update || true
+    opkg install wget-ssl ca-bundle ca-certificates openssl-util tar gzip coreutils-nohup procps-ng || true
   else
-    err "不支持的包管理器（需要 apt/dnf/yum/apk 之一）"
+    err "不支持的包管理器（需要 apt/dnf/yum/apk/opkg 之一）"
     exit 1
   fi
 }
@@ -190,6 +193,70 @@ map_go_arch() {
     riscv64) echo "riscv64" ;;
     *) return 1 ;;
   esac
+}
+
+setup_service() {
+  if command -v systemctl >/dev/null 2>&1; then
+    log "Writing systemd service"
+    cat > "$SERVICE_PATH" <<EOF
+[Unit]
+Description=TS Derper
+After=network.target
+Wants=network.target
+
+[Service]
+User=root
+Restart=always
+RestartSec=3
+ExecStart=${BIN_PATH} -hostname ${DOMAIN} -a :${DERP_PORT} -http-port ${HTTP_PORT} -certmode manual -certdir ${DERP_DIR}
+RestartPreventExitStatus=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable derp >/dev/null
+    systemctl restart derp
+
+    if systemctl is-active --quiet derp; then
+      log "derp service is running (systemd)"
+    else
+      err "derp service failed to start. Check: journalctl -u derp -e"
+      exit 1
+    fi
+    return 0
+  fi
+
+  if [[ -x /etc/init.d ]]; then
+    log "未检测到 systemd，尝试 OpenWrt/procd 服务模式"
+    cat > /etc/init.d/derp <<'EOF'
+#!/bin/sh /etc/rc.common
+START=99
+STOP=10
+USE_PROCD=1
+
+start_service() {
+  procd_open_instance
+  procd_set_param command /etc/derp/derper -hostname derp.myself.com -a :33445 -http-port 33446 -certmode manual -certdir /etc/derp
+  procd_set_param respawn
+  procd_close_instance
+}
+EOF
+    # 用实际参数替换默认值
+    sed -i "s#-hostname derp.myself.com -a :33445 -http-port 33446#-hostname ${DOMAIN} -a :${DERP_PORT} -http-port ${HTTP_PORT}#" /etc/init.d/derp
+    chmod +x /etc/init.d/derp
+    /etc/init.d/derp enable || true
+    /etc/init.d/derp restart || /etc/init.d/derp start
+    log "derp service started via /etc/init.d/derp"
+    return 0
+  fi
+
+  warn "未检测到 systemd/procd，改为后台启动（重启后不会自启）"
+  nohup "$BIN_PATH" -hostname "$DOMAIN" -a ":$DERP_PORT" -http-port "$HTTP_PORT" -certmode manual -certdir "$DERP_DIR" >/var/log/derper.log 2>&1 &
+  sleep 1
+  pgrep -f "$BIN_PATH" >/dev/null 2>&1 || { err "derper 启动失败"; exit 1; }
+  log "derp process started (nohup mode)"
 }
 
 install_deps
@@ -259,34 +326,7 @@ openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
   -subj "/CN=${DOMAIN}" \
   -addext "subjectAltName=DNS:${DOMAIN}" >/dev/null 2>&1
 
-log "Writing systemd service"
-cat > "$SERVICE_PATH" <<EOF
-[Unit]
-Description=TS Derper
-After=network.target
-Wants=network.target
-
-[Service]
-User=root
-Restart=always
-RestartSec=3
-ExecStart=${BIN_PATH} -hostname ${DOMAIN} -a :${DERP_PORT} -http-port ${HTTP_PORT} -certmode manual -certdir ${DERP_DIR}
-RestartPreventExitStatus=1
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable derp >/dev/null
-systemctl restart derp
-
-if systemctl is-active --quiet derp; then
-  log "derp service is running"
-else
-  err "derp service failed to start. Check: journalctl -u derp -e"
-  exit 1
-fi
+setup_service
 
 DERPMAP_FILE="${DERP_DIR}/derpmap-${DOMAIN}.jsonc"
 cat > "$DERPMAP_FILE" <<EOF
