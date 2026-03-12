@@ -404,7 +404,12 @@ DERPER_SRC_BIN="$(go env GOPATH)/bin/derper"
 [[ -x "$DERPER_SRC_BIN" ]] || { err "derper binary not found after go install"; exit 1; }
 
 mkdir -p "$DERP_DIR"
-install -m 0755 "$DERPER_SRC_BIN" "$BIN_PATH"
+if command -v install >/dev/null 2>&1; then
+  install -m 0755 "$DERPER_SRC_BIN" "$BIN_PATH"
+else
+  cp "$DERPER_SRC_BIN" "$BIN_PATH"
+  chmod 0755 "$BIN_PATH"
+fi
 
 CRT_PATH="${DERP_DIR}/${DOMAIN}.crt"
 KEY_PATH="${DERP_DIR}/${DOMAIN}.key"
