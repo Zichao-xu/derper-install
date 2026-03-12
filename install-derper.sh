@@ -5,6 +5,7 @@ set -euo pipefail
 # Usage examples:
 #   bash install-derper.sh
 #   curl -fsSL https://your.domain/install-derper.sh | bash
+#   wget -qO- https://your.domain/install-derper.sh | bash
 
 DERP_DIR="/etc/derp"
 BIN_PATH="${DERP_DIR}/derper"
@@ -26,6 +27,39 @@ err() { echo -e "[x] $*" >&2; }
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || { err "Missing command: $1"; exit 1; }
+}
+
+need_one_cmd() {
+  local ok="false"
+  for c in "$@"; do
+    if command -v "$c" >/dev/null 2>&1; then
+      ok="true"
+      break
+    fi
+  done
+  [[ "$ok" == "true" ]] || { err "Missing command (one of): $*"; exit 1; }
+}
+
+download_text() {
+  local url="$1"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --connect-timeout 8 --retry 2 --retry-delay 1 "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- --timeout=10 --tries=2 "$url"
+  else
+    return 1
+  fi
+}
+
+download_file() {
+  local url="$1" out="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --connect-timeout 10 --retry 3 --retry-delay 1 "$url" -o "$out"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -O "$out" --timeout=15 --tries=3 "$url"
+  else
+    return 1
+  fi
 }
 
 usage() {
@@ -50,6 +84,7 @@ usage() {
 示例：
   bash install-derper.sh
   curl -fsSL https://your.domain/install-derper.sh | bash
+  wget -qO- https://your.domain/install-derper.sh | bash
   # 如需覆盖默认域名：
   bash install-derper.sh --domain derp.example.com
 EOF
@@ -70,10 +105,12 @@ detect_public_ip() {
     "https://api.ipify.org"
     "https://ipv4.icanhazip.com"
     "https://ifconfig.me/ip"
+    "https://ip.sb"
+    "https://4.ipw.cn"
   )
   local ip
   for ep in "${endpoints[@]}"; do
-    ip="$(curl -4fsSL --max-time 8 "$ep" 2>/dev/null | tr -d '[:space:]' || true)"
+    ip="$(download_text "$ep" 2>/dev/null | tr -d '[:space:]' || true)"
     if is_ipv4 "$ip"; then
       echo "$ip"
       return 0
@@ -121,8 +158,7 @@ fi
 
 need_cmd systemctl
 need_cmd openssl
-need_cmd curl
-need_cmd git
+need_one_cmd curl wget
 
 install_deps() {
   if command -v apt >/dev/null 2>&1; then
@@ -165,15 +201,31 @@ if [[ "$SKIP_GO_INSTALL" != "true" ]]; then
     exit 1
   fi
 
-  log "Detecting latest Go version"
-  GO_VERSION="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n1)"
-  [[ "$GO_VERSION" =~ ^go[0-9] ]] || { err "Failed to detect Go version"; exit 1; }
+  log "探测最新 Go 版本"
+  GO_VERSION="$(download_text 'https://go.dev/VERSION?m=text' | head -n1 || true)"
+  if [[ ! "$GO_VERSION" =~ ^go[0-9] ]]; then
+    GO_VERSION="$(download_text 'https://golang.google.cn/VERSION?m=text' | head -n1 || true)"
+  fi
+  [[ "$GO_VERSION" =~ ^go[0-9] ]] || { err "无法获取 Go 版本，请检查网络"; exit 1; }
 
   GO_TARBALL="${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
-  GO_URL="https://go.dev/dl/${GO_TARBALL}"
+  GO_URLS=(
+    "https://go.dev/dl/${GO_TARBALL}"
+    "https://golang.google.cn/dl/${GO_TARBALL}"
+  )
 
-  log "Installing ${GO_VERSION} (${GO_ARCH})"
-  wget -q -O "/tmp/${GO_TARBALL}" "$GO_URL"
+  log "安装 ${GO_VERSION} (${GO_ARCH})"
+  GO_OK="false"
+  for u in "${GO_URLS[@]}"; do
+    log "尝试下载：$u"
+    if download_file "$u" "/tmp/${GO_TARBALL}"; then
+      GO_OK="true"
+      break
+    fi
+    warn "下载失败，切换镜像"
+  done
+  [[ "$GO_OK" == "true" ]] || { err "Go 下载失败，请稍后重试"; exit 1; }
+
   rm -rf /usr/local/go
   tar -C /usr/local -xzf "/tmp/${GO_TARBALL}"
   rm -f "/tmp/${GO_TARBALL}"
@@ -184,8 +236,8 @@ need_cmd go
 
 log "Configuring Go env"
 go env -w GO111MODULE=on
-# Use default proxy chain; keep direct fallback
-GO_PROXY_DEFAULT="https://proxy.golang.org,direct"
+# 国内网络优先 goproxy.cn，并保留 direct 回退
+GO_PROXY_DEFAULT="https://goproxy.cn,https://proxy.golang.org,direct"
 go env -w GOPROXY="$GO_PROXY_DEFAULT"
 
 log "Installing derper binary"
@@ -278,3 +330,6 @@ echo "如果你使用 UFW，可执行："
 echo "  ufw allow ${DERP_PORT}/tcp"
 echo "  ufw allow 3478/udp"
 echo "  ufw allow ${HTTP_PORT}/tcp"
+echo
+echo "如果 curl 拉不下来，可改用："
+echo "  wget -qO- <你的脚本链接> | bash"
