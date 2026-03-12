@@ -4,6 +4,14 @@
 
 One-click install/uninstall scripts for Tailscale DERP (Linux-first, supports OpenWrt, Ubuntu, etc.).
 
+## 核心优势（Key Advantage）
+
+- **无需域名、无需备案，也可以快速搭建 DERP 中转。**
+- **No domain name or ICP filing required** to quickly set up your own DERP relay.
+
+> 默认方案使用自签证书 + `InsecureForTests`，适合自用/测试场景。
+> The default path uses self-signed cert + `InsecureForTests`, ideal for personal/test usage.
+
 ---
 
 ## 安装（Install）
