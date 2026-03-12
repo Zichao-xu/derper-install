@@ -20,6 +20,7 @@ REGION_CODE="Myself"
 REGION_NAME="Myself Derper"
 NODE_NAME="901a"
 SKIP_GO_INSTALL="false"
+TARGET_OS=""
 
 log() { echo -e "[+] $*"; }
 warn() { echo -e "[!] $*"; }
@@ -79,12 +80,15 @@ usage() {
   --region-name <name>    derpMap RegionName（默认 Myself Derper）
   --node-name <name>      derpMap 节点名（默认 901a）
   --skip-go-install       跳过 Go 安装/更新
+  --os <name>             指定系统类型：ubuntu|rhel|openwrt|alpine|macos|other
   -h, --help              显示帮助
 
 示例：
   bash install-derper.sh
   curl -fsSL https://your.domain/install-derper.sh | bash
   wget -qO- https://your.domain/install-derper.sh | bash
+  # 指定系统类型（可选）：
+  bash install-derper.sh --os openwrt
   # 如需覆盖默认域名：
   bash install-derper.sh --domain derp.example.com
 EOF
@@ -135,6 +139,44 @@ detect_public_ip() {
   return 0
 }
 
+normalize_target_os() {
+  case "$1" in
+    ubuntu|debian) echo "ubuntu" ;;
+    rhel|centos|rocky|alma) echo "rhel" ;;
+    openwrt|istoreos) echo "openwrt" ;;
+    alpine) echo "alpine" ;;
+    macos|darwin) echo "macos" ;;
+    other|linux) echo "other" ;;
+    *) return 1 ;;
+  esac
+}
+
+choose_target_os() {
+  if [[ -n "$TARGET_OS" ]]; then
+    return 0
+  fi
+
+  echo "请选择你的系统类型："
+  echo "  1) Ubuntu / Debian"
+  echo "  2) CentOS / Rocky / Alma"
+  echo "  3) OpenWrt / iStoreOS"
+  echo "  4) Alpine"
+  echo "  5) macOS"
+  echo "  6) 其他 Linux"
+  printf "输入序号 [1-6]: "
+  read -r choice
+
+  case "$choice" in
+    1) TARGET_OS="ubuntu" ;;
+    2) TARGET_OS="rhel" ;;
+    3) TARGET_OS="openwrt" ;;
+    4) TARGET_OS="alpine" ;;
+    5) TARGET_OS="macos" ;;
+    6) TARGET_OS="other" ;;
+    *) err "无效选项：$choice"; exit 1 ;;
+  esac
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOMAIN="${2:-}"; shift 2 ;;
@@ -146,10 +188,17 @@ while [[ $# -gt 0 ]]; do
     --region-name) REGION_NAME="${2:-}"; shift 2 ;;
     --node-name) NODE_NAME="${2:-}"; shift 2 ;;
     --skip-go-install) SKIP_GO_INSTALL="true"; shift ;;
+    --os)
+      TARGET_OS="$(normalize_target_os "${2:-}" || true)"
+      [[ -n "$TARGET_OS" ]] || { err "无效 --os 参数: ${2:-}"; exit 1; }
+      shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) err "Unknown argument: $1"; usage; exit 1 ;;
   esac
 done
+
+choose_target_os
+log "系统选择：$TARGET_OS"
 
 if [[ $EUID -ne 0 ]]; then
   err "Please run as root (or use sudo)."
@@ -175,28 +224,50 @@ fi
 need_one_cmd curl wget
 
 install_deps() {
-  if command -v apt >/dev/null 2>&1; then
-    export DEBIAN_FRONTEND=noninteractive
-    log "检测到 apt，安装依赖中"
-    apt update -y
-    apt install -y wget git openssl curl ca-certificates
-  elif command -v dnf >/dev/null 2>&1; then
-    log "检测到 dnf，安装依赖中"
-    dnf install -y wget git openssl curl ca-certificates tar gzip
-  elif command -v yum >/dev/null 2>&1; then
-    log "检测到 yum，安装依赖中"
-    yum install -y wget git openssl curl ca-certificates tar gzip
-  elif command -v apk >/dev/null 2>&1; then
-    log "检测到 apk，安装依赖中"
-    apk add --no-cache wget git openssl curl ca-certificates tar gzip bash
-  elif command -v opkg >/dev/null 2>&1; then
-    log "检测到 opkg（OpenWrt），安装依赖中"
-    opkg update || true
-    opkg install wget-ssl ca-bundle ca-certificates openssl-util tar gzip coreutils-nohup procps-ng || true
-  else
-    err "不支持的包管理器（需要 apt/dnf/yum/apk/opkg 之一）"
-    exit 1
-  fi
+  case "$TARGET_OS" in
+    ubuntu)
+      need_cmd apt
+      export DEBIAN_FRONTEND=noninteractive
+      log "使用 apt 安装依赖"
+      apt update -y
+      apt install -y wget git openssl curl ca-certificates tar gzip
+      ;;
+    rhel)
+      if command -v dnf >/dev/null 2>&1; then
+        log "使用 dnf 安装依赖"
+        dnf install -y wget git openssl curl ca-certificates tar gzip
+      elif command -v yum >/dev/null 2>&1; then
+        log "使用 yum 安装依赖"
+        yum install -y wget git openssl curl ca-certificates tar gzip
+      else
+        err "未找到 dnf/yum"
+        exit 1
+      fi
+      ;;
+    openwrt)
+      need_cmd opkg
+      log "使用 opkg 安装依赖"
+      opkg update || true
+      opkg install wget-ssl ca-bundle ca-certificates openssl-util tar gzip coreutils-nohup procps-ng || true
+      ;;
+    alpine)
+      need_cmd apk
+      log "使用 apk 安装依赖"
+      apk add --no-cache wget git openssl curl ca-certificates tar gzip bash
+      ;;
+    macos)
+      need_cmd brew
+      log "使用 brew 安装依赖"
+      brew install curl wget git openssl go || true
+      ;;
+    other)
+      warn "other 模式：跳过自动安装依赖，请确保 curl/wget openssl tar gzip 可用"
+      ;;
+    *)
+      err "未知系统类型: $TARGET_OS"
+      exit 1
+      ;;
+  esac
 }
 
 map_go_arch() {
@@ -309,6 +380,7 @@ if [[ "$SKIP_GO_INSTALL" != "true" ]]; then
   done
   [[ "$GO_OK" == "true" ]] || { err "Go 下载失败，请稍后重试"; exit 1; }
 
+  mkdir -p /usr/local
   rm -rf /usr/local/go
   tar -C /usr/local -xzf "/tmp/${GO_TARBALL}"
   rm -f "/tmp/${GO_TARBALL}"
