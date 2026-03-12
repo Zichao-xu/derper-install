@@ -182,7 +182,7 @@ choose_target_os() {
   fi
 
   TARGET_OS="$(detect_target_os_auto)"
-  log "自动识别系统：$TARGET_OS（可用 --os 覆盖）"
+  log "自动识别系统：${TARGET_OS} (可用 --os 覆盖)"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -206,7 +206,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 choose_target_os
-log "系统选择：$TARGET_OS"
+log "系统选择：${TARGET_OS}"
 
 if [[ $EUID -ne 0 ]]; then
   err "Please run as root (or use sudo)."
