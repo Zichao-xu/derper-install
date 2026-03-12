@@ -102,21 +102,37 @@ is_ipv4() {
 
 detect_public_ip() {
   local endpoints=(
+    "https://4.ipw.cn"
+    "https://ip.sb"
+    "https://myip.ipip.net"
     "https://api.ipify.org"
     "https://ipv4.icanhazip.com"
     "https://ifconfig.me/ip"
-    "https://ip.sb"
-    "https://4.ipw.cn"
   )
-  local ip
+  local raw ip
+  local tmpf
+  tmpf="$(mktemp)"
+
   for ep in "${endpoints[@]}"; do
-    ip="$(download_text "$ep" 2>/dev/null | tr -d '[:space:]' || true)"
+    raw="$(download_text "$ep" 2>/dev/null || true)"
+    ip="$(echo "$raw" | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1 || true)"
     if is_ipv4 "$ip"; then
-      echo "$ip"
-      return 0
+      echo "$ip" >> "$tmpf"
     fi
   done
-  return 1
+
+  if [[ ! -s "$tmpf" ]]; then
+    rm -f "$tmpf"
+    return 1
+  fi
+
+  # 多数票：同一 IP 出现次数最多的作为结果
+  ip="$(sort "$tmpf" | uniq -c | sort -nr | awk 'NR==1{print $2}')"
+  rm -f "$tmpf"
+
+  is_ipv4 "$ip" || return 1
+  echo "$ip"
+  return 0
 }
 
 while [[ $# -gt 0 ]]; do
@@ -228,7 +244,7 @@ EOF
     return 0
   fi
 
-  if [[ -x /etc/init.d ]]; then
+  if [[ -d /etc/init.d ]]; then
     log "未检测到 systemd，尝试 OpenWrt/procd 服务模式"
     cat > /etc/init.d/derp <<'EOF'
 #!/bin/sh /etc/rc.common
