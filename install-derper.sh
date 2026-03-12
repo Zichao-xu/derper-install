@@ -172,7 +172,6 @@ else
   log "Detected public IPv4: $SERVER_IP"
 fi
 
-need_cmd openssl
 need_one_cmd curl wget
 
 install_deps() {
@@ -276,6 +275,7 @@ EOF
 }
 
 install_deps
+need_cmd openssl
 
 if [[ "$SKIP_GO_INSTALL" != "true" ]]; then
   GO_ARCH="$(map_go_arch || true)"
